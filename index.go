@@ -12,6 +12,7 @@ import "math"
 
 const RADAR_DIST = 4
 const MOVE_DIST = 4
+const UNKNOWN_THRESHOLD = 0.40
 
 /**********************************************************************************
  * Functions that the std library doesn't have
@@ -53,7 +54,7 @@ func (w World) ArrayIndexC(coord Coord) int {
     return coord.y * w.width + coord.x
 }
 
-func (w World) ArraySize() int {
+func (w World) Size() int {
     return w.width * w.height
 }
 
@@ -188,7 +189,7 @@ func digTurnDist(p1, p2 Coord) int {
  * Serious business here
  *********************************************************************************/
 func calculateCellRadarValues(unknowns []int, world World) []int {
-    radarValues := make([]int, world.ArraySize())
+    radarValues := make([]int, world.Size())
     for j := 0; j < world.height; j++ {
         for i := 1; i < world.width; i++ {
             cell := Coord{i, j}
@@ -251,6 +252,9 @@ func main() {
         start := time.Now()
         // myScore: Amount of ore delivered
         var myScore, opponentScore int
+        numUnknowns := 0
+        numOre := 0
+
         scanner.Scan()
         fmt.Sscan(scanner.Text(), &myScore, &opponentScore)
 
@@ -264,9 +268,11 @@ func main() {
                 if err != nil {
                     ores[world.ArrayIndex(i,j)] = 0
                     unknowns[world.ArrayIndex(i,j)] = 1
+                    numUnknowns++
                 } else {
                     ores[world.ArrayIndex(i,j)] = ore
                     unknowns[world.ArrayIndex(i,j)] = 0
+                    numOre += ore
                 }
 
                 hole, _ := strconv.ParseInt(inputs[2*i+1], 10, 32)
@@ -304,11 +310,18 @@ func main() {
         }
 
         chosenWidth := width
+        percentUnknown := float64(numUnknowns) / float64(world.Size())
+        firstBotDig := percentUnknown < UNKNOWN_THRESHOLD && numOre > 0
+        startingBot := 1
+        if firstBotDig {
+            fmt.Fprintln(os.Stderr, "Using starting bot")
+            startingBot = 0
+        }
         for j := 0; j < height; j++ {
             for i := 0; i < width; i++ {
-                if ores[world.ArrayIndex(i, j)] != 0 && j < chosenWidth {
+                if ores[world.ArrayIndex(i, j)] != 0 && i < chosenWidth {
                     chosenWidth = i
-                    for robots_i := 1; robots_i < len(robots); robots_i++ {
+                    for robots_i := startingBot; robots_i < len(robots); robots_i++ {
                         robots[robots_i].Dig(Coord{i, j})
                     }
                 }
@@ -317,7 +330,7 @@ func main() {
 
         for i := 0; i < len(robots); i++ {
             robot := &robots[i]
-            if i == 0 {
+            if i == 0 && !firstBotDig {
                 if robot.item == ITEM_NONE {
                     robot.RequestRadar()
                 } else if robot.pos.x == 0 {
