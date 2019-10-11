@@ -2,12 +2,12 @@ package main
 
 import (
     "fmt"
+    "strconv"
+    "strings"
     "time"
 )
 import "os"
 import "bufio"
-import "strings"
-import "strconv"
 import "math"
 
 const RADAR_DIST = 4
@@ -105,7 +105,7 @@ type Robot struct {
     item      Item
 }
 
-func (r *Robot) String() string {
+func (r Robot) String() string {
     return fmt.Sprintf("Robot (%d) { pos: %s, cmd: %d, targetPos: %s, item: %d}", r.id, r.pos, r.cmd, r.targetPos, r.item)
 }
 
@@ -133,7 +133,7 @@ func (r *Robot) RequestTrap() {
     r.cmd = CMD_TRAP
 }
 
-func (r *Robot) GetCommand() string {
+func (r Robot) GetCommand() string {
     if r.cmd == CMD_WAIT {
         return "WAIT"
     }
@@ -151,6 +151,10 @@ func (r *Robot) GetCommand() string {
     }
     fmt.Fprintf(os.Stderr, "Unknown command type for robot! %d, id: %d", r.cmd, r.id)
     return "WAIT"
+}
+
+func (r Robot) IsDead() bool {
+    return r.pos.x == -1
 }
 
 /**********************************************************************************
@@ -232,6 +236,77 @@ func calculateBestRadarPosition(unknowns []int, world World, pos Coord) (best Co
 }
 
 /**********************************************************************************
+ * Parsing Logic
+ *********************************************************************************/
+func ParseScore(scanner *bufio.Scanner) (myScore, opponentScore int) {
+    scanner.Scan()
+    fmt.Sscan(scanner.Text(), &myScore, &opponentScore)
+    return myScore, opponentScore
+}
+
+func ParseWorld(scanner *bufio.Scanner, world World, ores *[]int, unknowns* []int) (numOres, numUnknowns int){
+    numOres = 0
+    numUnknowns = 0
+
+    for j := 0; j < world.height; j++ {
+        scanner.Scan()
+        inputs := strings.Split(scanner.Text(), " ")
+        for i := 0; i < world.width; i++ {
+            // ore: amount of ore or "?" if unknown
+            // hole: 1 if cell has a hole
+            ore, err := strconv.Atoi(inputs[2*i])
+            if err != nil {
+                (*ores)[world.ArrayIndex(i,j)] = 0
+                (*unknowns)[world.ArrayIndex(i,j)] = 1
+                numUnknowns++
+            } else {
+                (*ores)[world.ArrayIndex(i,j)] = ore
+                (*unknowns)[world.ArrayIndex(i,j)] = 0
+                numOres += ore
+            }
+
+            hole, _ := strconv.ParseInt(inputs[2*i+1], 10, 32)
+            _ = hole
+        }
+    }
+    return numOres, numUnknowns
+}
+
+func ParseEntities(scanner *bufio.Scanner, world World, robots *[]Robot, ores *[]int) (radarCooldown, trapCooldown int){
+    // entityCount: number of entities visible to you
+    // radarCooldown: turns left until a new radar can be requested
+    // trapCooldown: turns left until a new trap can be requested
+    var entityCount int
+
+    scanner.Scan()
+    fmt.Sscan(scanner.Text(), &entityCount, &radarCooldown, &trapCooldown)
+
+    myRobot_i := 0
+    for i := 0; i < entityCount; i++ {
+        // id: unique id of the entity
+        // type: 0 for your robot, 1 for other robot, 2 for radar, 3 for trap
+        // y: position of the entity
+        // item: if this entity is a robot, the item it is carrying (-1 for NONE, 2 for RADAR, 3 for TRAP, 4 for ORE)
+        var id, objType, x, y, item int
+        scanner.Scan()
+        fmt.Sscan(scanner.Text(), &id, &objType, &x, &y, &item)
+
+        if Object(objType) == OBJ_ME {
+            robot := &(*robots)[myRobot_i]
+            robot.id = id
+            robot.pos.x = x
+            robot.pos.y = y
+            robot.item = Item(item)
+
+            myRobot_i++
+        } else if Object(objType) == OBJ_TRAP {
+            (*ores)[world.ArrayIndex(x,y)] = 0
+        }
+    }
+    return radarCooldown, trapCooldown
+}
+
+/**********************************************************************************
  * Main loop
  *********************************************************************************/
 func main() {
@@ -249,80 +324,30 @@ func main() {
     robots := make([]Robot, 5)
 
     for {
+        // Keep timing of each turn
         start := time.Now()
-        // myScore: Amount of ore delivered
-        var myScore, opponentScore int
-        numUnknowns := 0
-        numOre := 0
 
-        scanner.Scan()
-        fmt.Sscan(scanner.Text(), &myScore, &opponentScore)
-
-        for j := 0; j < height; j++ {
-            scanner.Scan()
-            inputs := strings.Split(scanner.Text(), " ")
-            for i := 0; i < width; i++ {
-                // ore: amount of ore or "?" if unknown
-                // hole: 1 if cell has a hole
-                ore, err := strconv.Atoi(inputs[2*i])
-                if err != nil {
-                    ores[world.ArrayIndex(i,j)] = 0
-                    unknowns[world.ArrayIndex(i,j)] = 1
-                    numUnknowns++
-                } else {
-                    ores[world.ArrayIndex(i,j)] = ore
-                    unknowns[world.ArrayIndex(i,j)] = 0
-                    numOre += ore
-                }
-
-                hole, _ := strconv.ParseInt(inputs[2*i+1], 10, 32)
-                _ = hole
-            }
-        }
-
-        // entityCount: number of entities visible to you
-        // radarCooldown: turns left until a new radar can be requested
-        // trapCooldown: turns left until a new trap can be requested
-        var entityCount, radarCooldown, trapCooldown int
-        scanner.Scan()
-        fmt.Sscan(scanner.Text(), &entityCount, &radarCooldown, &trapCooldown)
-        myRobot_i := 0
-        for i := 0; i < entityCount; i++ {
-            // id: unique id of the entity
-            // type: 0 for your robot, 1 for other robot, 2 for radar, 3 for trap
-            // y: position of the entity
-            // item: if this entity is a robot, the item it is carrying (-1 for NONE, 2 for RADAR, 3 for TRAP, 4 for ORE)
-            var id, objType, x, y, item int
-            scanner.Scan()
-            fmt.Sscan(scanner.Text(), &id, &objType, &x, &y, &item)
-
-            if Object(objType) == OBJ_ME {
-                robot := &robots[myRobot_i]
-                robot.id = id
-                robot.pos.x = x
-                robot.pos.y = y
-                robot.item = Item(item)
-
-                myRobot_i++
-            } else if Object(objType) == OBJ_TRAP {
-                ores[world.ArrayIndex(x,y)] = 0
-            }
-        }
+        // Parse input
+        myScore, opponentScore := ParseScore(scanner)
+        numOre, numUnknowns := ParseWorld(scanner, world, &ores, &unknowns)
+        radarCooldown, trapCooldown := ParseEntities(scanner, world, &robots, &ores)
+        _, _, _, _ = myScore, opponentScore, radarCooldown, trapCooldown
 
         chosenWidth := width
         percentUnknown := float64(numUnknowns) / float64(world.Size())
         firstBotDig := percentUnknown < UNKNOWN_THRESHOLD && numOre > 0
         startingBot := 1
+
         if firstBotDig {
-            fmt.Fprintln(os.Stderr, "Using starting bot")
             startingBot = 0
         }
+
         for j := 0; j < height; j++ {
             for i := 0; i < width; i++ {
                 if ores[world.ArrayIndex(i, j)] != 0 && i < chosenWidth {
                     chosenWidth = i
-                    for robots_i := startingBot; robots_i < len(robots); robots_i++ {
-                        robots[robots_i].Dig(Coord{i, j})
+                    for k := startingBot; k < len(robots); k++ {
+                        robots[k].Dig(Coord{i, j})
                     }
                 }
             }
