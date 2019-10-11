@@ -113,10 +113,22 @@ func (r *Robot) Wait() {
     r.cmd = CMD_WAIT
 }
 
-func (r *Robot) Move(pos Coord) {
+func (r *Robot) MoveTo(pos Coord) {
     r.cmd = CMD_MOVE
     r.targetPos.x = pos.x
     r.targetPos.y = pos.y
+}
+
+func (r *Robot) Move(dx, dy int) {
+    r.cmd = CMD_MOVE
+    r.targetPos.x = r.pos.x + dx
+    r.targetPos.y = r.pos.y + dy
+}
+
+func (r *Robot) ReturnToHQ() {
+    r.cmd = CMD_MOVE
+    r.targetPos.x = 0
+    r.targetPos.y = r.pos.y
 }
 
 func (r *Robot) Dig(pos Coord) {
@@ -354,6 +366,10 @@ func main() {
             }
         }
 
+        for ; botIndex < len(robots); botIndex++ {
+            robots[botIndex].Move(MOVE_DIST / 2, 0)
+        }
+
         for i := 0; i < len(robots); i++ {
             robot := &robots[i]
             if i == 0 && !firstBotDig {
@@ -365,7 +381,7 @@ func main() {
                 }
             } else {
                 if robot.item == ITEM_ORE {
-                    robot.Move(Coord{0, robot.pos.y})
+                    robot.ReturnToHQ()
                 }
             }
         }
