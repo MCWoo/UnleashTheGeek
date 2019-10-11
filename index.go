@@ -41,12 +41,20 @@ func min(a, b int) int {
  * Data structures
  *********************************************************************************/
 
-type Map struct {
+type World struct {
     width, height int
 }
 
-func (m Map) ArrayIndex(x, y int) int {
-    return y * m.width + x
+func (w World) ArrayIndex(x, y int) int {
+    return y * w.width + x
+}
+
+func (w World) ArrayIndexC(coord Coord) int {
+    return coord.y * w.width + coord.x
+}
+
+func (w World) ArraySize() int {
+    return w.width * w.height
 }
 
 /**
@@ -179,17 +187,17 @@ func digTurnDist(p1, p2 Coord) int {
 /**********************************************************************************
  * Serious business here
  *********************************************************************************/
-func calculateCellRadarValues(unknowns []int, width, height int) []int {
-    radarValues := make([]int, width*height)
-    for j := 0; j < height; j++ {
-        for i := 0; i < width; i++ {
+func calculateCellRadarValues(unknowns []int, world World) []int {
+    radarValues := make([]int, world.ArraySize())
+    for j := 0; j < world.height; j++ {
+        for i := 0; i < world.width; i++ {
             cell := Coord{i, j}
-            for n := max(j-RADAR_DIST, 0); n < min(j+RADAR_DIST, height); n++ {
-                for m := max(i-4, RADAR_DIST); m < min(i+RADAR_DIST, width); m++ {
+            for n := max(j-RADAR_DIST, 0); n < min(j+RADAR_DIST, world.height); n++ {
+                for m := max(i-4, RADAR_DIST); m < min(i+RADAR_DIST, world.width); m++ {
                     if dist(cell, Coord{m, n}) > RADAR_DIST {
                         continue
                     }
-                    radarValues[cell.y*width+cell.x] += unknowns[n*width+m]
+                    radarValues[world.ArrayIndexC(cell)] += unknowns[world.ArrayIndex(m,n)]
                 }
             }
         }
@@ -197,14 +205,14 @@ func calculateCellRadarValues(unknowns []int, width, height int) []int {
     return radarValues
 }
 
-func calculateBestRadarPosition(unknowns []int, width, height int, pos Coord) (best Coord) {
-    radarValues := calculateCellRadarValues(unknowns, width, height)
-    closest := width + height // furthest point
+func calculateBestRadarPosition(unknowns []int, world World, pos Coord) (best Coord) {
+    radarValues := calculateCellRadarValues(unknowns, world)
+    closest := world.width + world.height // furthest point
     largestValue := 0         // lowest value
 
-    for j := 0; j < height; j++ {
-        for i := 0; i < width; i++ {
-            value := radarValues[j*width+i]
+    for j := 0; j < world.height; j++ {
+        for i := 0; i < world.width; i++ {
+            value := radarValues[world.ArrayIndex(i, j)]
             if value > largestValue {
                 largestValue = value
                 best = Coord{i, j}
@@ -233,6 +241,8 @@ func main() {
     var width, height int
     scanner.Scan()
     fmt.Sscan(scanner.Text(), &width, &height)
+
+    world := World{width, height}
     ores := make([]int, width*height)
     unknowns := make([]int, width*height)
     robots := make([]Robot, 5)
@@ -244,22 +254,22 @@ func main() {
         scanner.Scan()
         fmt.Sscan(scanner.Text(), &myScore, &opponentScore)
 
-        for i := 0; i < height; i++ {
+        for j := 0; j < height; j++ {
             scanner.Scan()
             inputs := strings.Split(scanner.Text(), " ")
-            for j := 0; j < width; j++ {
+            for i := 0; i < width; i++ {
                 // ore: amount of ore or "?" if unknown
                 // hole: 1 if cell has a hole
-                ore, err := strconv.Atoi(inputs[2*j])
+                ore, err := strconv.Atoi(inputs[2*i])
                 if err != nil {
-                    ores[i*width+j] = 0
-                    unknowns[i*width+j] = 1
+                    ores[world.ArrayIndex(i,j)] = 0
+                    unknowns[world.ArrayIndex(i,j)] = 1
                 } else {
-                    ores[i*width+j] = ore
-                    unknowns[i*width+j] = 0
+                    ores[world.ArrayIndex(i,j)] = ore
+                    unknowns[world.ArrayIndex(i,j)] = 0
                 }
 
-                hole, _ := strconv.ParseInt(inputs[2*j+1], 10, 32)
+                hole, _ := strconv.ParseInt(inputs[2*i+1], 10, 32)
                 _ = hole
             }
         }
@@ -289,14 +299,14 @@ func main() {
 
                 myRobot_i++
             } else if Object(objType) == OBJ_TRAP {
-                ores[y*width + x] = 0
+                ores[world.ArrayIndex(x,y)] = 0
             }
         }
 
         chosenWidth := width
         for j := 0; j < height; j++ {
             for i := 0; i < width; i++ {
-                if ores[j*width + i] != 0 && j < chosenWidth {
+                if ores[world.ArrayIndex(i, j)] != 0 && j < chosenWidth {
                     chosenWidth = i
                     for robots_i := 1; robots_i < len(robots); robots_i++ {
                         robots[robots_i].Dig(Coord{i, j})
@@ -311,7 +321,7 @@ func main() {
                 if robot.item == ITEM_NONE {
                     robot.RequestRadar()
                 } else if robot.pos.x == 0 {
-                    bestDig := calculateBestRadarPosition(unknowns, width, height, robot.pos)
+                    bestDig := calculateBestRadarPosition(unknowns, world, robot.pos)
                     robot.Dig(bestDig)
                 }
             } else {
