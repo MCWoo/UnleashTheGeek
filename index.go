@@ -190,10 +190,10 @@ func digTurnDist(p1, p2 Coord) int {
 func calculateCellRadarValues(unknowns []int, world World) []int {
     radarValues := make([]int, world.ArraySize())
     for j := 0; j < world.height; j++ {
-        for i := 0; i < world.width; i++ {
+        for i := 1; i < world.width; i++ {
             cell := Coord{i, j}
-            for n := max(j-RADAR_DIST, 0); n < min(j+RADAR_DIST, world.height); n++ {
-                for m := max(i-4, RADAR_DIST); m < min(i+RADAR_DIST, world.width); m++ {
+            for n := max(j-RADAR_DIST, 0); n <= min(j+RADAR_DIST, world.height-1); n++ {
+                for m := max(i-RADAR_DIST, 1); m <= min(i+RADAR_DIST, world.width-1); m++ {
                     if dist(cell, Coord{m, n}) > RADAR_DIST {
                         continue
                     }
@@ -207,11 +207,11 @@ func calculateCellRadarValues(unknowns []int, world World) []int {
 
 func calculateBestRadarPosition(unknowns []int, world World, pos Coord) (best Coord) {
     radarValues := calculateCellRadarValues(unknowns, world)
-    closest := world.width + world.height // furthest point
+    closest := world.width // furthest point
     largestValue := 0         // lowest value
 
     for j := 0; j < world.height; j++ {
-        for i := 0; i < world.width; i++ {
+        for i := 1; i < world.width; i++ {
             value := radarValues[world.ArrayIndex(i, j)]
             if value > largestValue {
                 largestValue = value
