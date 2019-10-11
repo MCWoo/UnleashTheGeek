@@ -41,6 +41,14 @@ func min(a, b int) int {
  * Data structures
  *********************************************************************************/
 
+type Map struct {
+    width, height int
+}
+
+func (m Map) ArrayIndex(x, y int) int {
+    return y * m.width + x
+}
+
 /**
  * A pair of ints for coordinates
  **/
@@ -69,6 +77,15 @@ const (
     ITEM_RADAR Item = 2
     ITEM_TRAP  Item = 3
     ITEM_ORE   Item = 4
+)
+
+type Object int
+
+const (
+    OBJ_ME       Object = 0
+    OBJ_OPPONENT Object = 1
+    OBJ_RADAR    Object = 2
+    OBJ_TRAP     Object = 3
 )
 
 type Robot struct {
@@ -227,7 +244,6 @@ func main() {
         scanner.Scan()
         fmt.Sscan(scanner.Text(), &myScore, &opponentScore)
 
-        chosenWidth := width
         for i := 0; i < height; i++ {
             scanner.Scan()
             inputs := strings.Split(scanner.Text(), " ")
@@ -243,12 +259,6 @@ func main() {
                     unknowns[i*width+j] = 0
                 }
 
-                if ore != 0 && j < chosenWidth {
-                    chosenWidth = j
-                    for robots_i := 1; robots_i < len(robots); robots_i++ {
-                        robots[robots_i].Dig(Coord{j, i})
-                    }
-                }
                 hole, _ := strconv.ParseInt(inputs[2*j+1], 10, 32)
                 _ = hole
             }
@@ -270,29 +280,48 @@ func main() {
             scanner.Scan()
             fmt.Sscan(scanner.Text(), &id, &objType, &x, &y, &item)
 
-            if objType == 0 {
+            if Object(objType) == OBJ_ME {
                 robot := &robots[myRobot_i]
                 robot.id = id
                 robot.pos.x = x
                 robot.pos.y = y
                 robot.item = Item(item)
 
-                if myRobot_i == 0 {
-                    if robot.item == ITEM_NONE {
-                        robot.RequestRadar()
-                    } else if x == 0 {
-                        bestDig := calculateBestRadarPosition(unknowns, width, height, Coord{x, y})
-                        robot.Dig(bestDig)
-                    }
-                } else {
-                    if item == 4 {
-                        robot.Move(Coord{0, y})
-                    }
-                }
                 myRobot_i++
+            } else if Object(objType) == OBJ_TRAP {
+                ores[y*width + x] = 0
             }
         }
-        for i := 0; i < 5; i++ {
+
+        chosenWidth := width
+        for j := 0; j < height; j++ {
+            for i := 0; i < width; i++ {
+                if ores[j*width + i] != 0 && j < chosenWidth {
+                    chosenWidth = i
+                    for robots_i := 1; robots_i < len(robots); robots_i++ {
+                        robots[robots_i].Dig(Coord{i, j})
+                    }
+                }
+            }
+        }
+
+        for i := 0; i < len(robots); i++ {
+            robot := &robots[i]
+            if i == 0 {
+                if robot.item == ITEM_NONE {
+                    robot.RequestRadar()
+                } else if robot.pos.x == 0 {
+                    bestDig := calculateBestRadarPosition(unknowns, width, height, robot.pos)
+                    robot.Dig(bestDig)
+                }
+            } else {
+                if robot.item == ITEM_ORE {
+                    robot.Move(Coord{0, robot.pos.y})
+                }
+            }
+        }
+
+        for i := 0; i < len(robots); i++ {
             fmt.Println(robots[i].GetCommand()) // WAIT|MOVE x y|DIG x y|REQUEST item
         }
         elapsed := time.Since(start)
