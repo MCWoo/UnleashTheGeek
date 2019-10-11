@@ -182,7 +182,7 @@ func (r Robot) GetCommand() string {
     return "WAIT"
 }
 
-func (r Robot) IsCmdValid(world World, ores *[]int) (valid bool) {
+func (r Robot) IsCmdValid(ores *[]int) (valid bool) {
     if r.cmd == CMD_DIG {
         if r.digIntent == ITEM_RADAR {
             return r.item == ITEM_RADAR
@@ -251,7 +251,7 @@ func digTurnDist(p1, p2 Coord) int {
 /**********************************************************************************
  * Serious business here
  *********************************************************************************/
-func calculateCellRadarValues(unknowns []int, world World) []int {
+func calculateCellRadarValues(unknowns []int) []int {
     radarValues := make([]int, world.Size())
     for j := 0; j < world.height; j++ {
         for i := 1; i < world.width; i++ {
@@ -269,8 +269,8 @@ func calculateCellRadarValues(unknowns []int, world World) []int {
     return radarValues
 }
 
-func calculateBestRadarPosition(unknowns []int, world World, pos Coord) (best Coord) {
-    radarValues := calculateCellRadarValues(unknowns, world)
+func calculateBestRadarPosition(unknowns []int, pos Coord) (best Coord) {
+    radarValues := calculateCellRadarValues(unknowns)
     closest := world.width // furthest point
     largestValue := 0         // lowest value
 
@@ -303,7 +303,7 @@ func ParseScore(scanner *bufio.Scanner) (myScore, opponentScore int) {
     return myScore, opponentScore
 }
 
-func ParseWorld(scanner *bufio.Scanner, world World, ores *[]int, unknowns* []int) (numOres, numUnknowns int){
+func ParseWorld(scanner *bufio.Scanner, ores *[]int, unknowns* []int) (numOres, numUnknowns int){
     numOres = 0
     numUnknowns = 0
 
@@ -331,7 +331,7 @@ func ParseWorld(scanner *bufio.Scanner, world World, ores *[]int, unknowns* []in
     return numOres, numUnknowns
 }
 
-func ParseEntities(scanner *bufio.Scanner, world World, robots *[]Robot, ores *[]int) (radarCooldown, trapCooldown int){
+func ParseEntities(scanner *bufio.Scanner, robots *[]Robot, ores *[]int) (radarCooldown, trapCooldown int){
     // entityCount: number of entities visible to you
     // radarCooldown: turns left until a new radar can be requested
     // trapCooldown: turns left until a new trap can be requested
@@ -388,8 +388,8 @@ func main() {
 
         // Parse input
         myScore, opponentScore := ParseScore(scanner)
-        numOre, numUnknowns := ParseWorld(scanner, world, &ores, &unknowns)
-        radarCooldown, trapCooldown := ParseEntities(scanner, world, &robots, &ores)
+        numOre, numUnknowns := ParseWorld(scanner, &ores, &unknowns)
+        radarCooldown, trapCooldown := ParseEntities(scanner, &robots, &ores)
         _, _, _, _ = myScore, opponentScore, radarCooldown, trapCooldown
 
         percentUnknown := float64(numUnknowns) / float64(world.Size())
@@ -398,14 +398,14 @@ func main() {
         var needCmds []int
         for i := 0; i < len(robots); i++ {
             robot := &robots[i]
-            if robot.IsCmdValid(world, &ores) {
+            if robot.IsCmdValid(&ores) {
                 continue
             }
             if robot.item == ITEM_ORE {
                 robot.ReturnToHQ()
             } else if robot.IsAtHQ() {
                 if robot.item == ITEM_RADAR {
-                    robot.Dig(calculateBestRadarPosition(unknowns, world, robot.pos), ITEM_RADAR)
+                    robot.Dig(calculateBestRadarPosition(unknowns, robot.pos), ITEM_RADAR)
                 } else if robot.item == ITEM_TRAP {
                     // nothing right now
                 } else if radarCooldown == 0 && !unknownThresholdPassed {
