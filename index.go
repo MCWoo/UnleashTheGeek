@@ -2,6 +2,7 @@ package main
 
 import (
     "fmt"
+    "math/rand"
     "strconv"
     "strings"
     "time"
@@ -12,9 +13,12 @@ import "math"
 
 const RADAR_DIST = 4
 const MOVE_DIST = 4
-const UNKNOWN_THRESHOLD = 0.40
+
 const COOLDOwN_RADAR = 5
 const COOLDOwN_TRAP = 5
+
+const UNKNOWN_THRESHOLD = 0.40
+const TRAP_THRESHOLD = 0.10
 
 /**********************************************************************************
  * Functions that the std library doesn't have
@@ -42,6 +46,11 @@ func min(a, b int) int {
 
 func clamp(x, low, high int) int {
     return min(max(x, low), high)
+}
+
+func mapContainsCoord(m map[Coord]bool, val Coord) bool {
+    _, ok := m[val]
+    return ok
 }
 
 /**********************************************************************************
@@ -251,6 +260,9 @@ func digTurnDist(p1, p2 Coord) int {
 /**********************************************************************************
  * Serious business here
  *********************************************************************************/
+func randomLoc() Coord {
+    return Coord{rand.Intn(world.width-1)+1, rand.Intn(world.height-1)+1}
+}
 func calculateCellRadarValues(unknowns []int) []int {
     radarValues := make([]int, world.Size())
     for j := 0; j < world.height; j++ {
@@ -294,6 +306,32 @@ func calculateBestRadarPosition(unknowns []int, pos Coord) (best Coord) {
     return best
 }
 
+func calculateTrapPosition(numOres int, ores []int, closestOreX int, digReqs map[Coord]bool, trapReqs map[Coord]bool, ) (best Coord) {
+    // Choose a spot we know about
+    // Search from the back so we don't place too late
+    if numOres > 0 {
+        fmt.Fprintf(os.Stderr, "ClosestOreX: %d, starting i: %d\n", closestOreX, min(closestOreX + 2, world.width-2))
+        for i := min(closestOreX + 2, world.width-2); i < world.width ; i++ {
+            for j := 0; j < world.height; j++ {
+                if ores[world.ArrayIndex(i, j)] > 0 {
+                    pos := Coord{i, j}
+                    if !mapContainsCoord(digReqs, pos) && !mapContainsCoord(trapReqs, pos) {
+                        fmt.Fprintf(os.Stderr, "Chosen pos: %s\n", pos)
+                        return pos
+                    }
+                }
+            }
+        }
+    }
+
+    // Lastly, choose somewhere random
+    best = randomLoc()
+    for ; mapContainsCoord(digReqs, best) || mapContainsCoord(trapReqs, best); {
+        best = randomLoc()
+    }
+    return best
+}
+
 /**********************************************************************************
  * Parsing Logic
  *********************************************************************************/
@@ -303,9 +341,8 @@ func ParseScore(scanner *bufio.Scanner) (myScore, opponentScore int) {
     return myScore, opponentScore
 }
 
-func ParseWorld(scanner *bufio.Scanner, ores *[]int, unknowns* []int) (numOres, numUnknowns int){
-    numOres = 0
-    numUnknowns = 0
+func ParseWorld(scanner *bufio.Scanner, ores *[]int, unknowns* []int) (numOres, numUnknowns, closestOreX int){
+    closestOreX = world.width
 
     for j := 0; j < world.height; j++ {
         scanner.Scan()
@@ -322,16 +359,23 @@ func ParseWorld(scanner *bufio.Scanner, ores *[]int, unknowns* []int) (numOres, 
                 (*ores)[world.ArrayIndex(i,j)] = ore
                 (*unknowns)[world.ArrayIndex(i,j)] = 0
                 numOres += ore
+
+                if ore > 0 && i < closestOreX {
+                    closestOreX = i
+                }
             }
 
             hole, _ := strconv.ParseInt(inputs[2*i+1], 10, 32)
             _ = hole
         }
     }
-    return numOres, numUnknowns
+    return numOres, numUnknowns, closestOreX
 }
 
-func ParseEntities(scanner *bufio.Scanner, robots *[]Robot, ores *[]int) (radarCooldown, trapCooldown int){
+func ParseEntities(scanner *bufio.Scanner,
+                   robots *[]Robot,
+                   ores *[]int,
+                   myRadars *map[Coord]bool) (opponentRobots, radarCooldown, trapCooldown, numTraps int) {
     // entityCount: number of entities visible to you
     // radarCooldown: turns left until a new radar can be requested
     // trapCooldown: turns left until a new trap can be requested
@@ -360,9 +404,14 @@ func ParseEntities(scanner *bufio.Scanner, robots *[]Robot, ores *[]int) (radarC
             myRobot_i++
         } else if Object(objType) == OBJ_TRAP {
             (*ores)[world.ArrayIndex(x,y)] = 0
+            numTraps++
+        } else if Object(objType) == OBJ_OPPONENT {
+            if x != -1 {
+                opponentRobots++
+            }
         }
     }
-    return radarCooldown, trapCooldown
+    return opponentRobots, radarCooldown, trapCooldown, numTraps
 }
 
 /**********************************************************************************
@@ -382,18 +431,25 @@ func main() {
     unknowns := make([]int, width*height)
     robots := make([]Robot, 5)
 
+    myRadars := make(map[Coord]bool)
+
+    trapReqs := make(map[Coord]bool)
+    digReqs := make(map[Coord]bool)
+
     for {
         // Keep timing of each turn
         start := time.Now()
 
         // Parse input
         myScore, opponentScore := ParseScore(scanner)
-        numOre, numUnknowns := ParseWorld(scanner, &ores, &unknowns)
-        radarCooldown, trapCooldown := ParseEntities(scanner, &robots, &ores)
+        numOres, numUnknowns, closestOreX := ParseWorld(scanner, &ores, &unknowns)
+        opponentRobots, radarCooldown, trapCooldown, numTraps := ParseEntities(scanner, &robots, &ores, &myRadars)
         _, _, _, _ = myScore, opponentScore, radarCooldown, trapCooldown
 
         percentUnknown := float64(numUnknowns) / float64(world.Size())
+        percentTraps := float64(numTraps) / float64(numOres)
         unknownThresholdPassed := percentUnknown < UNKNOWN_THRESHOLD
+        trapsThresholdPassed := percentTraps > TRAP_THRESHOLD
 
         var needCmds []int
         for i := 0; i < len(robots); i++ {
@@ -405,15 +461,24 @@ func main() {
                 robot.ReturnToHQ()
             } else if robot.IsAtHQ() {
                 if robot.item == ITEM_RADAR {
-                    robot.Dig(calculateBestRadarPosition(unknowns, robot.pos), ITEM_RADAR)
+                    // Give a location to place the radar
+                    best := calculateBestRadarPosition(unknowns, robot.pos)
+                    robot.Dig(best, ITEM_RADAR)
+                    myRadars[best] = true
+                    digReqs[best] = true
                 } else if robot.item == ITEM_TRAP {
-                    // nothing right now
+                    // Give a location to place the trap
+                    best := calculateTrapPosition(numOres, ores, closestOreX, digReqs, trapReqs)
+                    robot.Dig(best, ITEM_TRAP)
+                    trapReqs[best] = true
+                    digReqs[best] = true
                 } else if radarCooldown == 0 && !unknownThresholdPassed {
+                    // Pick radar first if possible
                     robot.RequestRadar()
                     radarCooldown = COOLDOwN_RADAR
-                //} else if trapCooldown == 0 {
-                    // calculate spot to place trap
-                    //trapCooldown = COOLDOwN_TRAP
+                } else if trapCooldown == 0 && !trapsThresholdPassed && opponentRobots > 1 {
+                    robot.RequestTrap()
+                    trapCooldown = COOLDOwN_TRAP
                 } else {
                     needCmds = append(needCmds, i)
                 }
@@ -422,17 +487,23 @@ func main() {
             }
         }
 
+        // Robots who don't have commands yet
         if len(needCmds) > 0 {
             cmdIndex := 0
-            if numOre > 0 {
-                for i := 0; i < width && numOre > 0 && cmdIndex < len(needCmds); i++ {
-                    for j := 0; j < height && numOre > 0 && cmdIndex < len(needCmds); j++ {
+            if numOres > 0 {
+                for i := 0; i < width && numOres > 0 && cmdIndex < len(needCmds); i++ {
+                    for j := 0; j < height && numOres > 0 && cmdIndex < len(needCmds); j++ {
                         cellOres := ores[world.ArrayIndex(i, j)]
                         if cellOres != 0 {
-                            for k := 0; k < cellOres && cmdIndex < len(needCmds); k++ {
-                                robots[needCmds[cmdIndex]].Dig(Coord{i, j}, ITEM_ORE)
-                                cmdIndex++
-                                numOre--
+                            // Ensure the location isn't supposed to be a trap
+                            pos := Coord{i, j}
+                            if !mapContainsCoord(trapReqs, pos) {
+                                for k := 0; k < cellOres && cmdIndex < len(needCmds); k++ {
+                                    robots[needCmds[cmdIndex]].Dig(Coord{i, j}, ITEM_ORE)
+                                    digReqs[pos] = true
+                                    cmdIndex++
+                                    numOres--
+                                }
                             }
                         }
                     }
