@@ -333,21 +333,22 @@ func main() {
         radarCooldown, trapCooldown := ParseEntities(scanner, world, &robots, &ores)
         _, _, _, _ = myScore, opponentScore, radarCooldown, trapCooldown
 
-        chosenWidth := width
         percentUnknown := float64(numUnknowns) / float64(world.Size())
         firstBotDig := percentUnknown < UNKNOWN_THRESHOLD && numOre > 0
-        startingBot := 1
+        botIndex := 1
 
         if firstBotDig {
-            startingBot = 0
+            botIndex = 0
         }
 
-        for j := 0; j < height; j++ {
-            for i := 0; i < width; i++ {
-                if ores[world.ArrayIndex(i, j)] != 0 && i < chosenWidth {
-                    chosenWidth = i
-                    for k := startingBot; k < len(robots); k++ {
-                        robots[k].Dig(Coord{i, j})
+        for i := 0; i < width && numOre > 0 && botIndex < len(robots); i++ {
+            for j := 0; j < height && numOre > 0 && botIndex < len(robots); j++ {
+                cellOres := ores[world.ArrayIndex(i, j)]
+                if cellOres != 0 {
+                    for k := 0; k < cellOres && botIndex < len(robots); k++ {
+                        robots[botIndex].Dig(Coord{i, j})
+                        botIndex++
+                        numOre--
                     }
                 }
             }
